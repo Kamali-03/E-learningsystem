@@ -157,7 +157,8 @@ function App() {
   const [search, setSearch] = useState("");
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [activeLesson, setActiveLesson] = useState(0);
-
+const [lessonSeconds, setLessonSeconds] = useState(0);
+const [lessonReady, setLessonReady] = useState(false);
   const [quizAnswers, setQuizAnswers] = useState({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [quizScore, setQuizScore] = useState(null);
@@ -170,6 +171,67 @@ function App() {
   });
 
   // Save user
+  // One-minute lesson timer
+  // 20-second lesson timer
+useEffect(() => {
+  if (!user || !selectedCourse) {
+    setLessonSeconds(0);
+    setLessonReady(false);
+    return;
+  }
+
+  const timerKey = `lessonTimer_${user.id}_${selectedCourse.id}_${activeLesson}`;
+
+  const savedSeconds = Math.min(
+    Number(localStorage.getItem(timerKey) || 0),
+    20
+  );
+
+  setLessonSeconds(savedSeconds);
+  setLessonReady(savedSeconds >= 20);
+
+  if (savedSeconds >= 20) return;
+
+  let interval;
+
+  const startTimer = () => {
+    clearInterval(interval);
+
+    interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+
+      setLessonSeconds((previous) => {
+        const updated = Math.min(previous + 1, 20);
+
+        localStorage.setItem(timerKey, updated);
+
+        if (updated >= 20) {
+          setLessonReady(true);
+          clearInterval(interval);
+        }
+
+        return updated;
+      });
+    }, 1000);
+  };
+
+  const handleVisibility = () => {
+    if (document.visibilityState === "visible") {
+      startTimer();
+    } else {
+      clearInterval(interval);
+    }
+  };
+
+  startTimer();
+
+  document.addEventListener("visibilitychange", handleVisibility);
+
+  return () => {
+    clearInterval(interval);
+    document.removeEventListener("visibilitychange", handleVisibility);
+  };
+}, [user, selectedCourse, activeLesson]);
   useEffect(() => {
     if (user) {
       localStorage.setItem("elearningUser", JSON.stringify(user));
@@ -177,6 +239,7 @@ function App() {
       localStorage.removeItem("elearningUser");
     }
   }, [user]);
+
 
   // Save courses
   useEffect(() => {
@@ -401,68 +464,69 @@ function App() {
   };
 
   // Complete lesson and save student progress
-  const completeLesson = async () => {
-    if (!selectedCourse) return;
+  // Open selected course
+const openCourse = (course) => {
+  setSelectedCourse(course);
+  setActiveLesson(0);
+  setDfaState("Q2");
+};
+// Complete lesson and save student progress
+const completeLesson = async () => {
+  if (!selectedCourse) return;
 
-    const courseId = selectedCourse.id;
-    const completed = getCompletedLessons(courseId);
+  if (lessonSeconds < 20) {
+    alert("You can mark this lesson as read only after 1 minute.");
+    return;
+  }
 
-    if (!completed.includes(activeLesson)) {
-      const updatedProgress = {
-        ...progress,
-        [courseId]: {
-          completed: [
-            ...(progress[courseId]?.completed || []),
-            activeLesson
-          ]
-        }
-      };
+  const courseId = selectedCourse.id;
+  const completed = getCompletedLessons(courseId);
 
-      setProgress(updatedProgress);
+  if (completed.includes(activeLesson)) return;
 
-      if (user?.id) {
-        try {
-          const response = await fetch(
-            `${API_URL}/progress/${user.id}`,
-            {
-              method: "PUT",
-              headers: {
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({
-                progress: updatedProgress
-              })
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error("Progress save failed");
-          }
-
-          console.log("Student progress saved in MongoDB");
-        } catch (error) {
-          console.error("Progress save error:", error);
-        }
-      }
+  const updatedProgress = {
+    ...progress,
+    [courseId]: {
+      completed: [
+        ...(progress[courseId]?.completed || []),
+        activeLesson
+      ]
     }
-
-    setDfaState((current) =>
-      current === "Q4" ? "Q4" : "Q3"
-    );
-
-    alert("Lesson completed successfully! DFA moved to Q3.");
   };
 
-  const openCourse = (course) => {
-    setSelectedCourse(course);
-    setActiveLesson(0);
+  if (user?.id) {
+    try {
+      const response = await fetch(
+        `${API_URL}/progress/${user.id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            progress: updatedProgress
+          })
+        }
+      );
 
-    setDfaState((current) =>
-      current === "Q0" ? "Q0" : "Q2"
-    );
+      if (!response.ok) {
+        throw new Error("Progress save failed");
+      }
+    } catch (error) {
+      console.error("Progress save error:", error);
+      alert("Unable to save progress. Please try again.");
+      return;
+    }
+  }
 
-    setActiveSection("Learning");
-  };
+  setProgress(updatedProgress);
+
+  setDfaState((current) =>
+    current === "Q4" ? "Q4" : "Q3"
+  );
+
+  alert("Lesson completed successfully!");
+};
 
   // Quiz
   const handleQuizAnswer = (questionIndex, answerIndex) => {
@@ -1029,20 +1093,45 @@ function App() {
                           <li>Complete the lesson successfully.</li>
                         </ul>
                       </div>
+{getCompletedLessons(selectedCourse.id).includes(activeLesson) ? (
+  <p className="success-message">
+    ✓ This lesson is already completed.
+  </p>
+) : (
+  <>
+    <div className="lesson-timer-card">
+      <h3>Lesson Reading Time</h3>
 
-                      {getCompletedLessons(selectedCourse.id)
-                        .includes(activeLesson) ? (
-                        <p className="success-message">
-                          ✓ This lesson is already completed.
-                        </p>
-                      ) : (
-                        <button
-                          className="primary-btn"
-                          onClick={completeLesson}
-                        >
-                          Mark as Completed
-                        </button>
-                      )}
+      <h2>
+       {`00:${String(Math.max(0, 20 - lessonSeconds)).padStart(2, "0")}`}
+       </h2>
+
+      <div className="progress-track">
+        <div
+          className="progress-fill"
+          style={{
+           width: `${Math.min((lessonSeconds / 20) * 100, 100)}%`
+          }}
+        />
+      </div>
+
+      <p>
+        {lessonReady
+          ? "Minimum reading time completed!"
+          : "Please spend at least 30 sec on this lesson."}
+      </p>
+    </div>
+<button
+  className="primary-btn"
+  onClick={completeLesson}
+  disabled={!lessonReady}
+>
+  {lessonReady
+    ? "Mark as Completed"
+    : "Available After 20 Seconds"}
+</button>
+  </>
+)}
 
                       <div className="lesson-navigation">
                         <button
