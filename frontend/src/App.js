@@ -1,9 +1,8 @@
 
 import React, { useEffect, useState } from "react";
 import "./App.css";
-
-const API_URL = "http://localhost:5000/api/users";
-const COURSE_API = "http://localhost:5000/api/courses";
+const API_URL = "https://e-learningsystem.onrender.com/api/users";
+const COURSE_API = "https://e-learningsystem.onrender.com/api/courses";
 
 const defaultCourses = [
   {
